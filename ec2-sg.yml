@@ -20,7 +20,7 @@ Resources:
     Properties:
       InstanceId: !Ref MyInstance
 
-  # our EC2 security group
+  # EC2 security group
   SSHSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
