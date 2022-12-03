@@ -1,0 +1,133 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Lambda -> SQS -> Lambda'
+
+Resources:
+
+  PosQueue:
+    Type: 'AWS::SQS::Queue'
+    Properties:
+      QueueName: !Sub 'pos-queue'
+      DelaySeconds: 0
+      MaximumMessageSize: 262144
+      MessageRetentionPeriod: 300 ## 5 minutos
+      VisibilityTimeout: 30 ## segundos
+
+  RecLambdaLogGroup:
+    Type: 'AWS::Logs::LogGroup'
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/pos-rec-lambda'
+      RetentionInDays: 3
+
+  SendLambdaLogGroup:
+    Type: 'AWS::Logs::LogGroup'
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/pos-send-lambda'
+      RetentionInDays: 3
+
+  PosLambdaRole:
+    Type: 'AWS::IAM::Role'
+    DependsOn:
+      - PosQueue
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Policies:
+        - PolicyName: !Sub 'pos-policy-lambda'
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !Sub 'arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/*:*:*'
+              - Effect: Allow
+                Action:
+                  - sqs:ReceiveMessage
+                  - sqs:SendMessage
+                  - sqs:DeleteMessage
+                  - sqs:GetQueueAttributes
+                  - sqs:ChangeMessageVisibility
+                Resource: !GetAtt PosQueue.Arn
+              - Effect: Allow
+                Action:
+                  - xray:PutTraceSegments
+                  - xray:PutTelemetryRecords
+                Resource: '*'
+
+  PosLambdaSourceMapping:
+    Type: 'AWS::Lambda::EventSourceMapping'
+    DependsOn:
+      - PosQueue
+      - RecLambda
+    Properties:
+      BatchSize: 5
+      Enabled: true
+      EventSourceArn: !GetAtt PosQueue.Arn
+      FunctionName: !GetAtt RecLambda.Arn
+
+  RecLambda:
+    Type: 'AWS::Lambda::Function'
+    DependsOn:
+      - PosLambdaRole
+      - RecLambdaLogGroup
+    Properties:
+      Description: 'Recebe mensagem Lambda'
+      FunctionName: !Sub 'pos-rec-lambda'
+      Handler: index.handler
+      Runtime: python3.7
+      MemorySize: 128
+      Timeout: 30
+      TracingConfig:
+        Mode: Active
+      Role: !GetAtt PosLambdaRole.Arn
+      Code:
+        ZipFile: |
+          import os
+          import json
+
+          def handler(event, context):
+            print("Event: {}".format(event))    
+
+  SendLambda:
+    Type: 'AWS::Lambda::Function'
+    DependsOn:
+      - PosLambdaRole
+      - SendLambdaLogGroup
+    Properties:
+      Description: 'Envia mensagem para SQS'
+      FunctionName: !Sub 'pos-send-lambda'
+      Handler: index.handler
+      Runtime: python3.7
+      MemorySize: 128
+      Timeout: 30
+      TracingConfig:
+        Mode: Active
+      Role: !GetAtt PosLambdaRole.Arn
+      Code:
+        ZipFile: |
+          import json
+          import boto3
+
+          from datetime import datetime
+
+          def handler(event, context):
+
+            now = datetime.now()
+            current_time = now.strftime("%H:%M:%S %p")
+
+            sqs = boto3.client('sqs')
+            sqs.send_message(QueueUrl='https://sqs.us-east-1.amazonaws.com/691758086353/pos-queue',
+            MessageBody='Test send message'
+            )
+            return {
+                'statusCode': 200,
+                'body': json.dumps(current_time)
+            } 
