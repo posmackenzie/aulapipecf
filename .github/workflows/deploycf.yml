@@ -11,7 +11,7 @@ jobs:
     - uses: actions/checkout@v1
     - uses: mgenteluci/cloudformation-deploy-action@v1.4.1
       env:
-        TEMPLATE: 'ec2-sg.yml'
+        TEMPLATE: 'template.yml'
         AWS_STACK_NAME: 'ec2-sg-stack'
         AWS_REGION: 'us-east-1'
         AWS_ACCESS_KEY_ID: ${{secrets.AWS_ACCESS_KEY_ID}}
